@@ -86,7 +86,7 @@ class Parser
     }
 
     /**
-     * Returns decoded version of data-page attribute in HTML page
+     * Returns the decoded Inertia page payload from the HTML page
      *
      * @return array
      */
@@ -94,9 +94,19 @@ class Parser
     {
         $parser = new Crawler($html);
 
-        $data = $parser->filter('#app')->attr('data-page');
+        $node = $parser->filter('script[data-page="app"]');
 
-        return json_decode((string) $data, true);
+        if ($node->count() === 0) {
+            throw new Exception('Could not find the inertia page payload in the HTML response.');
+        }
+
+        $data = json_decode($node->text(), true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new Exception('Failed to decode the inertia page payload: '.json_last_error_msg());
+        }
+
+        return $data;
     }
 
     public static function extractJsonAfter(string $html, string $needle): array
