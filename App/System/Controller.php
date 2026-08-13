@@ -20,9 +20,11 @@ class Controller
 
     public function getSeries(): array
     {
-        // we want only files, and we only need their paths
+        // we want only finished videos, and we only need their paths.
+        // in-progress downloads are written as `.part` and must not count.
         $paths = $this->system->listContents(SERIES_FOLDER, true)
             ->filter(fn (StorageAttributes $attributes): bool => $attributes->isFile())
+            ->filter(fn (StorageAttributes $attributes): bool => str_ends_with($attributes->path(), '.mp4'))
             ->sortByPath()
             ->map(fn (StorageAttributes $attrs): string => $attrs->path())
             ->toArray();

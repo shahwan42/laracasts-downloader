@@ -48,14 +48,14 @@ class Parser
                     continue;
                 }
 
-                // vimeoId is null for upcoming episodes
-                if (! isset($episode['vimeoId'])) {
+                // playback is absent for upcoming/scheduled episodes
+                if (! isset($episode['cloudflarePlayback']['src'])) {
                     continue;
                 }
 
                 $episodes[] = [
                     'title' => $episode['title'],
-                    'vimeo_id' => $episode['vimeoId'],
+                    'hls_url' => $episode['cloudflarePlayback']['src'],
                     'number' => $episode['position'],
                 ];
             }
@@ -67,6 +67,13 @@ class Parser
     public static function getEpisodeDownloadLink(string $episodeHtml)
     {
         $data = self::getData($episodeHtml);
+
+        if (! isset($data['props']['downloadLink'])) {
+            throw new Exception(
+                'Laracasts no longer exposes a direct downloadLink on episode pages. '
+                .'Video is now served as HLS from media.laracasts.com.'
+            );
+        }
 
         return $data['props']['downloadLink'];
     }

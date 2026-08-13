@@ -7,8 +7,8 @@
 namespace App\Http;
 
 use App\Html\Parser;
+use App\Laracasts\HlsDownloader;
 use App\Utils\Utils;
-use App\Vimeo\VimeoDownloader;
 use Exception;
 use GuzzleHttp\Client;
 use GuzzleHttp\Cookie\CookieJar;
@@ -104,17 +104,31 @@ class Resolver
 
             $source = $_ENV['DOWNLOAD_SOURCE'];
 
-            if (! $source || $source === 'laracasts') {
+            if ($source === 'laracasts') {
                 $downloadLink = $this->getLaracastsLink($serieSlug, $episode['number']);
 
                 return $this->downloadVideo($downloadLink, $filepath);
-            } else {
-                $vimeoDownloader = new VimeoDownloader;
-
-                return $vimeoDownloader->download($episode['vimeo_id'], $filepath);
             }
+
+            if (! isset($episode['hls_url'])) {
+                throw new Exception(
+                    'No playback URL for this episode. If it came from cache.json, '
+                    .'delete that file and re-run to re-scrape it.'
+                );
+            }
+
+            // Laracasts authorises video playback per lesson: opening the lesson
+            // page issues an `lc_video_auth` cookie without which the media host
+            // rejects that episode's playlist. Mirror the browser and visit it first.
+            $this->getHtml("series/$serieSlug/episodes/".$episode['number']);
+
+            return (new HlsDownloader($this->cookies))->download($episode['hls_url'], $filepath);
         } catch (RequestException $e) {
             Utils::write($e->getMessage());
+
+            return false;
+        } catch (Exception $e) {
+            Utils::writeln($e->getMessage());
 
             return false;
         }
