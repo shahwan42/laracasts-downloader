@@ -34,11 +34,14 @@ $ cp .env.example .env
 4. Choose your preferred quality (240p, 360p, 540p, 720p, 1080p, 1440p, 2160p) by changing **VIDEO_QUALITY** in ``.env``.
 5. The next steps, choose if you want a [local installation](#using-your-local-machine) or [a Docker based installation](#using-docker) and follow along.
 
-### Details About Vimeo 
+### Details About Downloads
 
-If you using vimeo source, will download 2 files for each episode, a video file and an audio file. 
+Each episode is downloaded from its HLS playlist. The variant matching your
+`VIDEO_QUALITY` is picked (falling back to the highest available if it isn't
+offered), and FFmpeg muxes it straight into a single `.mp4` in the series folder.
 
-After all download will be done, the project will merge files and will moving to your respective folder. 
+Downloads are written to a `.part` file first and renamed once FFmpeg exits
+cleanly, so an interrupted run never leaves a truncated file that looks finished.
 
 ### Using your local machine
 1. Install project dependencies:

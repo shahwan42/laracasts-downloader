@@ -25,8 +25,6 @@ class Downloader
 
     private readonly \App\System\Controller $system;
 
-    private readonly Ubench $bench;
-
     /** @array<string, int[]> */
     private array $filters = [];
 
@@ -35,11 +33,10 @@ class Downloader
     /** @var bool Don't scrap pages and only get from existing cache */
     private bool $cacheOnly = false;
 
-    public function __construct(HttpClient $httpClient, Filesystem $system, Ubench $bench)
+    public function __construct(HttpClient $httpClient, Filesystem $system, private readonly Ubench $bench)
     {
         $this->client = new Resolver($httpClient);
         $this->system = new SystemController($system);
-        $this->bench = $bench;
         $this->laracasts = new LaracastsController($this->client);
     }
 
