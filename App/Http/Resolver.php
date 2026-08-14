@@ -6,14 +6,14 @@
 
 namespace App\Http;
 
+use App\Exceptions\DownloadException;
 use App\Html\Parser;
+use App\Laracasts\HlsDownloader;
 use App\Utils\Utils;
-use App\Vimeo\VimeoDownloader;
 use Exception;
 use GuzzleHttp\Client;
 use GuzzleHttp\Cookie\CookieJar;
 use GuzzleHttp\Exception\RequestException;
-use Ubench;
 
 /**
  * Class Resolver
@@ -30,7 +30,6 @@ class Resolver
      */
     public function __construct(
         private readonly Client $client,
-        private readonly Ubench $bench,
     ) {
         $this->cookies = new CookieJar;
     }
@@ -87,37 +86,40 @@ class Resolver
 
     /**
      * Download the episode of the serie.
+     *
+     * Failures are thrown rather than reported here: only the caller knows which
+     * serie and episode the attempt belonged to, and it is the caller that owns
+     * the run's tally and its end-of-run report.
+     *
+     * @throws DownloadException
+     * @throws RequestException
      */
-    public function downloadEpisode(string $serieSlug, array $episode): bool
+    public function downloadEpisode(string $serieSlug, array $episode): void
     {
-        try {
-            $number = sprintf('%02d', $episode['number']);
-            $name = $episode['title'];
-            $filepath = $this->getFilename($serieSlug, $number, $name);
+        $number = sprintf('%02d', $episode['number']);
+        $name = $episode['title'];
+        $filepath = $this->getFilename($serieSlug, $number, $name);
 
-            Utils::writeln(
-                sprintf(
-                    'Download started: %s . . . . Saving on '.SERIES_FOLDER.'/'.$serieSlug,
-                    $number.' - '.$name
-                )
+        Utils::writeln(
+            sprintf(
+                'Download started: %s . . . . Saving on '.SERIES_FOLDER.'/'.$serieSlug,
+                $number.' - '.$name
+            )
+        );
+
+        if (! isset($episode['hls_url'])) {
+            throw new DownloadException(
+                'No playback URL for this episode. If it came from cache.json, '
+                .'delete that file and re-run to re-scrape it.'
             );
-
-            $source = $_ENV['DOWNLOAD_SOURCE'];
-
-            if (! $source || $source === 'laracasts') {
-                $downloadLink = $this->getLaracastsLink($serieSlug, $episode['number']);
-
-                return $this->downloadVideo($downloadLink, $filepath);
-            } else {
-                $vimeoDownloader = new VimeoDownloader;
-
-                return $vimeoDownloader->download($episode['vimeo_id'], $filepath);
-            }
-        } catch (RequestException $e) {
-            Utils::write($e->getMessage());
-
-            return false;
         }
+
+        // Laracasts authorises video playback per lesson: opening the lesson
+        // page issues an `lc_video_auth` cookie without which the media host
+        // rejects that episode's playlist. Mirror the browser and visit it first.
+        $this->getHtml("series/$serieSlug/episodes/".$episode['number']);
+
+        (new HlsDownloader($this->cookies))->download($episode['hls_url'], $filepath);
     }
 
     private function getFilename(string $serieSlug, string $number, string $episodeName): string
@@ -143,74 +145,6 @@ class Resolver
             ->get($url, ['cookies' => $this->cookies, 'verify' => false])
             ->getBody()
             ->getContents();
-    }
-
-    /**
-     * Get Laracasts download link for given episode
-     */
-    private function getLaracastsLink(string $serieSlug, int $episodeNumber): string
-    {
-        $episodeHtml = $this->getHtml("series/$serieSlug/episodes/$episodeNumber");
-
-        return Parser::getEpisodeDownloadLink($episodeHtml);
-    }
-
-    /**
-     * Helper to get the Location header.
-     */
-    private function getRedirectUrl(string $url): string
-    {
-        $response = $this->client->get($url, [
-            'cookies' => $this->cookies,
-            'allow_redirects' => false,
-            'verify' => false,
-        ]);
-
-        return $response->getHeader('Location')[0] ?? '';
-    }
-
-    /**
-     * Helper to download the video.
-     */
-    private function downloadVideo(string $downloadUrl, string $saveTo): bool
-    {
-        $this->bench->start();
-
-        $link = $this->prepareDownloadLink($downloadUrl);
-
-        try {
-            $this->client->request('GET', $link['url'], [
-                'query' => $link['query'],
-                'sink' => fopen($saveTo, 'a'),
-                'progress' => fn ($downloadTotal, $downloadedBytes) => Utils::showProgressBar($downloadedBytes, $downloadTotal),
-            ]);
-        } catch (Exception $e) {
-            echo $e->getMessage().PHP_EOL;
-
-            return false;
-        }
-
-        $this->bench->end();
-
-        Utils::write(
-            sprintf(
-                'Elapsed time: %s, Memory: %s       ',
-                $this->bench->getTime(),
-                $this->bench->getMemoryUsage()
-            )
-        );
-
-        return true;
-    }
-
-    private function prepareDownloadLink(string $url): array
-    {
-        $parts = parse_url($this->getRedirectUrl($url));
-
-        return [
-            'query' => $parts['query'],
-            'url' => $parts['scheme'].'://'.$parts['host'].$parts['path'],
-        ];
     }
 
     /**

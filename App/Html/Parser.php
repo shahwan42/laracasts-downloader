@@ -48,27 +48,20 @@ class Parser
                     continue;
                 }
 
-                // vimeoId is null for upcoming episodes
-                if (! isset($episode['vimeoId'])) {
+                // playback is absent for upcoming/scheduled episodes
+                if (! isset($episode['cloudflarePlayback']['src'])) {
                     continue;
                 }
 
                 $episodes[] = [
                     'title' => $episode['title'],
-                    'vimeo_id' => $episode['vimeoId'],
+                    'hls_url' => $episode['cloudflarePlayback']['src'],
                     'number' => $episode['position'],
                 ];
             }
         }
 
         return $episodes;
-    }
-
-    public static function getEpisodeDownloadLink(string $episodeHtml)
-    {
-        $data = self::getData($episodeHtml);
-
-        return $data['props']['downloadLink'];
     }
 
     public static function getUserData(string $html): array
@@ -86,7 +79,7 @@ class Parser
     }
 
     /**
-     * Returns decoded version of data-page attribute in HTML page
+     * Returns the decoded Inertia page payload from the HTML page
      *
      * @return array
      */
@@ -94,60 +87,16 @@ class Parser
     {
         $parser = new Crawler($html);
 
-        $data = $parser->filter('#app')->attr('data-page');
+        $node = $parser->filter('script[data-page="app"]');
 
-        return json_decode((string) $data, true);
-    }
-
-    public static function extractJsonAfter(string $html, string $needle): array
-    {
-        $needlePos = strpos($html, $needle);
-
-        if ($needlePos === false) {
-            throw new Exception("$needle not found within $html");
+        if ($node->count() === 0) {
+            throw new Exception('Could not find the inertia page payload in the HTML response.');
         }
 
-        $openBracePos = strpos($html, '{', $needlePos);
-
-        if ($openBracePos === false) {
-            throw new Exception("No open curly brace found after $needle");
-        }
-
-        $braceCount = 1;
-        $currentPos = $openBracePos + 1;
-        $contentLength = strlen($html);
-
-        while ($braceCount > 0 && $currentPos < $contentLength) {
-            $nextOpenedBrace = strpos($html, '{', $currentPos);
-            $nextClosedBrace = strpos($html, '}', $currentPos);
-
-            if ($nextOpenedBrace === false && $nextClosedBrace === false) {
-                break;
-            }
-
-            if ($nextOpenedBrace !== false && $nextOpenedBrace < $nextClosedBrace) {
-                $braceCount++;
-                $currentPos = $nextOpenedBrace + 1;
-            } else {
-                $braceCount--;
-                $currentPos = $nextClosedBrace + 1;
-            }
-        }
-
-        if ($braceCount !== 0) {
-            throw new Exception('No valid json found');
-        }
-
-        $json = substr($html, $openBracePos, $currentPos - $openBracePos);
-
-        if (! $json) {
-            throw new Exception("Failed to extract json after $needle");
-        }
-
-        $data = json_decode($json, true);
+        $data = json_decode($node->text(), true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new Exception(json_last_error_msg());
+            throw new Exception('Failed to decode the inertia page payload: '.json_last_error_msg());
         }
 
         return $data;

@@ -18,7 +18,7 @@ If your local folder is empty, all lessons and series will be downloaded!
 - php-xml
 - php-json
 - Composer
-- [FFmpeg](https://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=&cad=rja&uact=8&ved=2ahUKEwio6vX03pT7AhU0X_EDHSx9BMkQFnoECAkQAQ&url=https%3A%2F%2Fffmpeg.org%2F&usg=AOvVaw19lCX0sMAnAOlyM2Pvp5-v) (required if ``DOWNLOAD_SOURCE=vimeo``)
+- [FFmpeg](https://ffmpeg.org/)
 
 OR
 
@@ -31,17 +31,17 @@ OR
 $ cp .env.example .env
 ```
 3. Update your Laracasts account credentials (`EMAIL`, `PASSWORD`) in .env
-4. Decide whether you want to use **vimeo** or **laracasts** as `DOWNLOAD_SOURCE`.
-   By using Laracasts link you are limited to 30 downloads per day and can't customize video quality.
-6. Choose your preferred quality (240p, 360p, 540p, 720p, 1080p, 1440p, 2160p) by changing **VIDEO_QUALITY** in ``.env``.
-   (will be ignored if `DOWNLOAD_SOURCE=laracasts`)
-7. The next steps, choose if you want a [local installation](#using-your-local-machine) or [a Docker based installation](#using-docker) and follow along.
+4. Choose your preferred quality (240p, 360p, 540p, 720p, 1080p, 1440p, 2160p) by changing **VIDEO_QUALITY** in ``.env``.
+5. The next steps, choose if you want a [local installation](#using-your-local-machine) or [a Docker based installation](#using-docker) and follow along.
 
-### Details About Vimeo 
+### Details About Downloads
 
-If you using vimeo source, will download 2 files for each episode, a video file and an audio file. 
+Each episode is downloaded from its HLS playlist. The variant matching your
+`VIDEO_QUALITY` is picked (falling back to the highest available if it isn't
+offered), and FFmpeg muxes it straight into a single `.mp4` in the series folder.
 
-After all download will be done, the project will merge files and will moving to your respective folder. 
+Downloads are written to a `.part` file first and renamed once FFmpeg exits
+cleanly, so an interrupted run never leaves a truncated file that looks finished.
 
 ### Using your local machine
 1. Install project dependencies:
@@ -76,7 +76,7 @@ Also works in the browser, but is better from the cli because of the instant fee
 ### Disable Scrapping
 
 The script scraps each Laracasts pages and caches them to memories its latest state
-and stores them in ``Downloads/cache.php``. If you already make sure this file is updated
+and stores them in ``Downloads/cache.json``. If you already make sure this file is updated
 and do not want to experience impatience of scrapping; you can use ``--cache-only`` option.
 
 ```sh

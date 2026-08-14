@@ -104,46 +104,4 @@ class Utils
         echo self::newLine();
         echo '> '.$text.self::newLine();
     }
-
-    /**
-     * Convert bytes to precision
-     */
-    public static function formatBytes($bytes, int $precision = 2): string
-    {
-        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
-
-        $bytes = max($bytes, 0);
-        $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
-        $pow = min($pow, count($units) - 1);
-
-        $bytes /= (1 << (10 * $pow));
-
-        return round($bytes, $precision).' '.$units[$pow];
-    }
-
-    /**
-     * Calculate a percentage
-     *
-     * @return float
-     */
-    public static function getPercentage($cur, $total): int|float
-    {
-        // Hide warning division by zero
-        if ($total === 0) {
-            return 0;
-        }
-
-        return round(@($cur / $total * 100));
-    }
-
-    public static function showProgressBar(int $downloadedBytes, ?int $totalBytes = null): void
-    {
-        if (php_sapi_name() == 'cli') {
-            printf("> Downloaded %s of %s (%d%%)      \r",
-                Utils::formatBytes($downloadedBytes),
-                Utils::formatBytes($totalBytes),
-                Utils::getPercentage($downloadedBytes, $totalBytes)
-            );
-        }
-    }
 }

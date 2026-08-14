@@ -23,5 +23,8 @@ $app = new App\Downloader($client, $filesystem, $bench);
 try {
     $app->start($options);
 } catch (Exception $e) {
-    echo 'ERROR: '.$e->getMessage();
+    echo 'ERROR: '.$e->getMessage().PHP_EOL;
+
+    // Without this the shell is told a run that died on login succeeded.
+    exit(1);
 }
