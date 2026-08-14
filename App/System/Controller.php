@@ -15,6 +15,9 @@ use League\Flysystem\StorageAttributes;
  */
 class Controller
 {
+    /** Where a run leaves the detail of any episodes that failed. */
+    public const string FAILURE_REPORT = 'failures.log';
+
     /** Keys the downloader needs on every cached episode. */
     private const array EPISODE_KEYS = ['title', 'hls_url', 'number'];
 
@@ -76,6 +79,23 @@ class Controller
         $this->system->write($file, json_encode($data));
     }
 
+    /**
+     * Writes the run's failure report, or clears a previous one when passed null
+     * so a stale file can never be mistaken for the current run's result.
+     */
+    public function saveFailureReport(?string $contents): void
+    {
+        $file = self::FAILURE_REPORT;
+
+        if ($this->system->fileExists($file)) {
+            $this->system->delete($file);
+        }
+
+        if ($contents !== null) {
+            $this->system->write($file, $contents);
+        }
+    }
+
     public function getCache(): array
     {
         $file = 'cache.json';
@@ -84,10 +104,18 @@ class Controller
             return [];
         }
 
-        $cache = json_decode($this->system->read($file), true);
+        $raw = $this->system->read($file);
+
+        $cache = json_decode($raw, true);
 
         if (! is_array($cache)) {
-            Utils::write('cache.json could not be read as JSON and will be rebuilt.');
+            // The byte count separates a file truncated by an interrupted write --
+            // the common cause -- from genuinely malformed JSON.
+            Utils::write(sprintf(
+                'cache.json could not be read as JSON (%s, %d bytes) and will be rebuilt.',
+                json_last_error_msg(),
+                strlen($raw)
+            ));
 
             return [];
         }

@@ -2,8 +2,8 @@
 
 namespace App\Laracasts;
 
+use App\Exceptions\DownloadException;
 use App\Utils\Utils;
-use Exception;
 use GuzzleHttp\Client;
 use GuzzleHttp\Cookie\CookieJar;
 use GuzzleHttp\Psr7\Request;
@@ -39,7 +39,7 @@ class HlsDownloader
     /**
      * Fetches a playlist with the subscriber's session attached.
      *
-     * @throws Exception with an accurate reason when the media host refuses.
+     * @throws DownloadException with an accurate reason when the media host refuses.
      */
     private function fetchPlaylist(string $url): string
     {
@@ -56,7 +56,7 @@ class HlsDownloader
         }
 
         if ($status === 403) {
-            throw new Exception(
+            throw new DownloadException(
                 "media.laracasts.com refused this playlist (HTTP 403).\n"
                 .'  Playback is authorised per lesson: opening the lesson page issues an '
                 ."`lc_video_auth` cookie that the media host checks.\n"
@@ -64,7 +64,7 @@ class HlsDownloader
             );
         }
 
-        throw new Exception("Unexpected response from $url (HTTP $status).");
+        throw new DownloadException("Unexpected response from $url (HTTP $status).");
     }
 
     /**
@@ -139,29 +139,80 @@ class HlsDownloader
 
         $command = sprintf(
             // -f mp4 is required: the `.part` suffix stops ffmpeg inferring the
-            // container from the file extension.
-            'ffmpeg -y -headers %s -i %s -c copy -bsf:a aac_adtstoasc -f mp4 %s',
+            // container from the file extension. -loglevel error -nostats drops
+            // the build banner and progress ticker, so what is captured below is
+            // the diagnosis and nothing else.
+            'ffmpeg -y -loglevel error -nostats -headers %s -i %s -c copy -bsf:a aac_adtstoasc -f mp4 %s',
             escapeshellarg($headers),
             escapeshellarg($playlistUrl),
             escapeshellarg($partialPath)
         );
 
-        $command .= PHP_OS === 'WINNT' ? ' 2> nul' : ' >/dev/null 2>&1';
+        // ffmpeg is chatty on success (45-odd lines of build banner) and terse on
+        // failure, so its stderr is captured aside rather than piped into a run
+        // that already prints thousands of lines. Only failures ever read it.
+        $stderrPath = tempnam(sys_get_temp_dir(), 'laracasts-ffmpeg-');
+
+        $command .= (PHP_OS === 'WINNT' ? ' > nul 2>' : ' >/dev/null 2>').escapeshellarg($stderrPath);
 
         $output = [];
         $code = 0;
 
         exec($command, $output, $code);
 
+        $stderr = is_file($stderrPath) ? trim((string) file_get_contents($stderrPath)) : '';
+
+        if (is_file($stderrPath)) {
+            unlink($stderrPath);
+        }
+
         if ($code !== 0) {
-            if (file_exists($partialPath)) {
+            if (is_file($partialPath)) {
                 unlink($partialPath);
             }
 
-            return false;
+            throw new DownloadException(
+                sprintf('ffmpeg failed (exit %d): %s', $code, $this->lastLines($stderr, 3)),
+                $stderr
+            );
         }
 
-        return rename($partialPath, $outputPath);
+        if (! is_file($partialPath)) {
+            throw new DownloadException('ffmpeg exited cleanly but wrote no file.', $stderr);
+        }
+
+        // Suppressed deliberately: a failing rename prints a raw PHP warning that
+        // bypasses this program's own output helpers and dumps absolute paths into
+        // the middle of a run. error_get_last() recovers the reason PHP already
+        // worked out, so it can be reported as a sentence instead.
+        //
+        // Unlike the ffmpeg branch above, the `.part` is left in place: it holds a
+        // complete download, and the next attempt overwrites it. Only a truncated
+        // one is worth deleting.
+        if (! @rename($partialPath, $outputPath)) {
+            $error = error_get_last();
+
+            throw new DownloadException(
+                'Could not move the finished download into place: '
+                .($error['message'] ?? 'rename() gave no reason.')
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * The tail of ffmpeg's stderr, which is where it states the actual cause.
+     */
+    private function lastLines(string $text, int $count): string
+    {
+        if ($text === '') {
+            return 'no output';
+        }
+
+        $lines = array_slice(explode("\n", $text), -$count);
+
+        return implode(' | ', array_map(trim(...), $lines));
     }
 
     /**

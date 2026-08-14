@@ -6,6 +6,7 @@
 
 namespace App\Http;
 
+use App\Exceptions\DownloadException;
 use App\Html\Parser;
 use App\Laracasts\HlsDownloader;
 use App\Utils\Utils;
@@ -85,43 +86,40 @@ class Resolver
 
     /**
      * Download the episode of the serie.
+     *
+     * Failures are thrown rather than reported here: only the caller knows which
+     * serie and episode the attempt belonged to, and it is the caller that owns
+     * the run's tally and its end-of-run report.
+     *
+     * @throws DownloadException
+     * @throws RequestException
      */
-    public function downloadEpisode(string $serieSlug, array $episode): bool
+    public function downloadEpisode(string $serieSlug, array $episode): void
     {
-        try {
-            $number = sprintf('%02d', $episode['number']);
-            $name = $episode['title'];
-            $filepath = $this->getFilename($serieSlug, $number, $name);
+        $number = sprintf('%02d', $episode['number']);
+        $name = $episode['title'];
+        $filepath = $this->getFilename($serieSlug, $number, $name);
 
-            Utils::writeln(
-                sprintf(
-                    'Download started: %s . . . . Saving on '.SERIES_FOLDER.'/'.$serieSlug,
-                    $number.' - '.$name
-                )
+        Utils::writeln(
+            sprintf(
+                'Download started: %s . . . . Saving on '.SERIES_FOLDER.'/'.$serieSlug,
+                $number.' - '.$name
+            )
+        );
+
+        if (! isset($episode['hls_url'])) {
+            throw new DownloadException(
+                'No playback URL for this episode. If it came from cache.json, '
+                .'delete that file and re-run to re-scrape it.'
             );
-
-            if (! isset($episode['hls_url'])) {
-                throw new Exception(
-                    'No playback URL for this episode. If it came from cache.json, '
-                    .'delete that file and re-run to re-scrape it.'
-                );
-            }
-
-            // Laracasts authorises video playback per lesson: opening the lesson
-            // page issues an `lc_video_auth` cookie without which the media host
-            // rejects that episode's playlist. Mirror the browser and visit it first.
-            $this->getHtml("series/$serieSlug/episodes/".$episode['number']);
-
-            return (new HlsDownloader($this->cookies))->download($episode['hls_url'], $filepath);
-        } catch (RequestException $e) {
-            Utils::write($e->getMessage());
-
-            return false;
-        } catch (Exception $e) {
-            Utils::writeln($e->getMessage());
-
-            return false;
         }
+
+        // Laracasts authorises video playback per lesson: opening the lesson
+        // page issues an `lc_video_auth` cookie without which the media host
+        // rejects that episode's playlist. Mirror the browser and visit it first.
+        $this->getHtml("series/$serieSlug/episodes/".$episode['number']);
+
+        (new HlsDownloader($this->cookies))->download($episode['hls_url'], $filepath);
     }
 
     private function getFilename(string $serieSlug, string $number, string $episodeName): string

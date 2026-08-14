@@ -6,12 +6,14 @@
 
 namespace App;
 
+use App\Exceptions\DownloadException;
 use App\Exceptions\LoginException;
 use App\Http\Resolver;
 use App\Laracasts\Controller as LaracastsController;
 use App\System\Controller as SystemController;
 use App\Utils\Utils;
 use Cocur\Slugify\Slugify;
+use Exception;
 use GuzzleHttp\Client as HttpClient;
 use League\Flysystem\Filesystem;
 use Ubench;
@@ -21,6 +23,9 @@ use Ubench;
  */
 class Downloader
 {
+    /** How many failures to list inline before deferring to the report file. */
+    private const int FAILURES_LISTED = 20;
+
     private readonly Resolver $client;
 
     private readonly \App\System\Controller $system;
@@ -32,6 +37,9 @@ class Downloader
 
     /** @var bool Don't scrap pages and only get from existing cache */
     private bool $cacheOnly = false;
+
+    /** @var array<int, array{label: string, reason: string, details: string}> */
+    private array $failures = [];
 
     public function __construct(HttpClient $httpClient, Filesystem $system, private readonly Ubench $bench)
     {
@@ -95,6 +103,74 @@ class Downloader
                 $counter['failed_episode']
             )
         );
+
+        $this->reportFailures();
+    }
+
+    /**
+     * Remembers a failed episode and says so straight away, so a live watcher
+     * sees the reason next to the episode it belongs to.
+     */
+    private function recordFailure(string $serieSlug, array $episode, Exception $e): void
+    {
+        $label = sprintf('%s %02d - %s', $serieSlug, $episode['number'], $episode['title']);
+
+        $reason = $e->getMessage();
+
+        $this->failures[] = [
+            'label' => $label,
+            'reason' => $reason,
+            'details' => $e instanceof DownloadException ? $e->getDetails() : '',
+        ];
+
+        // Reasons can be multi-line; keep the inline form to one line.
+        Utils::write('FAILED: '.$label.' - '.preg_replace('/\s+/', ' ', $reason));
+    }
+
+    /**
+     * Lists the failures and leaves the full detail on disk, since a catalogue
+     * run prints thousands of lines and a failure scrolls out of reach.
+     */
+    private function reportFailures(): void
+    {
+        if ($this->failures === []) {
+            $this->system->saveFailureReport(null);
+
+            return;
+        }
+
+        $shown = array_slice($this->failures, 0, self::FAILURES_LISTED);
+
+        foreach ($shown as $failure) {
+            Utils::write('  '.$failure['label'].' - '.preg_replace('/\s+/', ' ', $failure['reason']));
+        }
+
+        $remaining = count($this->failures) - count($shown);
+
+        if ($remaining > 0) {
+            Utils::write(sprintf('  ...and %d more.', $remaining));
+        }
+
+        $this->system->saveFailureReport($this->buildFailureReport());
+
+        Utils::write('Full detail: '.BASE_FOLDER.'/'.SystemController::FAILURE_REPORT);
+    }
+
+    private function buildFailureReport(): string
+    {
+        $blocks = [];
+
+        foreach ($this->failures as $failure) {
+            $block = $failure['label'].PHP_EOL.$failure['reason'];
+
+            if ($failure['details'] !== '') {
+                $block .= PHP_EOL.PHP_EOL.$failure['details'];
+            }
+
+            $blocks[] = $block;
+        }
+
+        return implode(PHP_EOL.str_repeat('-', 60).PHP_EOL, $blocks).PHP_EOL;
     }
 
     /**
@@ -146,8 +222,12 @@ class Downloader
 
             foreach ($serie['episodes'] as $episode) {
 
-                if ($this->client->downloadEpisode($serie['slug'], $episode) === false) {
+                try {
+                    $this->client->downloadEpisode($serie['slug'], $episode);
+                } catch (Exception $e) {
                     $counter['failed_episode'] += 1;
+
+                    $this->recordFailure($serie['slug'], $episode, $e);
                 }
 
                 Utils::write(
