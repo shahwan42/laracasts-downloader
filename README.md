@@ -76,7 +76,7 @@ Also works in the browser, but is better from the cli because of the instant fee
 ### Disable Scrapping
 
 The script scraps each Laracasts pages and caches them to memories its latest state
-and stores them in ``Downloads/cache.php``. If you already make sure this file is updated
+and stores them in ``Downloads/cache.json``. If you already make sure this file is updated
 and do not want to experience impatience of scrapping; you can use ``--cache-only`` option.
 
 ```sh
