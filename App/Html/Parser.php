@@ -64,20 +64,6 @@ class Parser
         return $episodes;
     }
 
-    public static function getEpisodeDownloadLink(string $episodeHtml)
-    {
-        $data = self::getData($episodeHtml);
-
-        if (! isset($data['props']['downloadLink'])) {
-            throw new Exception(
-                'Laracasts no longer exposes a direct downloadLink on episode pages. '
-                .'Video is now served as HLS from media.laracasts.com.'
-            );
-        }
-
-        return $data['props']['downloadLink'];
-    }
-
     public static function getUserData(string $html): array
     {
 

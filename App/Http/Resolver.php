@@ -13,7 +13,6 @@ use Exception;
 use GuzzleHttp\Client;
 use GuzzleHttp\Cookie\CookieJar;
 use GuzzleHttp\Exception\RequestException;
-use Ubench;
 
 /**
  * Class Resolver
@@ -30,7 +29,6 @@ class Resolver
      */
     public function __construct(
         private readonly Client $client,
-        private readonly Ubench $bench,
     ) {
         $this->cookies = new CookieJar;
     }
@@ -102,14 +100,6 @@ class Resolver
                 )
             );
 
-            $source = $_ENV['DOWNLOAD_SOURCE'];
-
-            if ($source === 'laracasts') {
-                $downloadLink = $this->getLaracastsLink($serieSlug, $episode['number']);
-
-                return $this->downloadVideo($downloadLink, $filepath);
-            }
-
             if (! isset($episode['hls_url'])) {
                 throw new Exception(
                     'No playback URL for this episode. If it came from cache.json, '
@@ -157,74 +147,6 @@ class Resolver
             ->get($url, ['cookies' => $this->cookies, 'verify' => false])
             ->getBody()
             ->getContents();
-    }
-
-    /**
-     * Get Laracasts download link for given episode
-     */
-    private function getLaracastsLink(string $serieSlug, int $episodeNumber): string
-    {
-        $episodeHtml = $this->getHtml("series/$serieSlug/episodes/$episodeNumber");
-
-        return Parser::getEpisodeDownloadLink($episodeHtml);
-    }
-
-    /**
-     * Helper to get the Location header.
-     */
-    private function getRedirectUrl(string $url): string
-    {
-        $response = $this->client->get($url, [
-            'cookies' => $this->cookies,
-            'allow_redirects' => false,
-            'verify' => false,
-        ]);
-
-        return $response->getHeader('Location')[0] ?? '';
-    }
-
-    /**
-     * Helper to download the video.
-     */
-    private function downloadVideo(string $downloadUrl, string $saveTo): bool
-    {
-        $this->bench->start();
-
-        $link = $this->prepareDownloadLink($downloadUrl);
-
-        try {
-            $this->client->request('GET', $link['url'], [
-                'query' => $link['query'],
-                'sink' => fopen($saveTo, 'a'),
-                'progress' => fn ($downloadTotal, $downloadedBytes) => Utils::showProgressBar($downloadedBytes, $downloadTotal),
-            ]);
-        } catch (Exception $e) {
-            echo $e->getMessage().PHP_EOL;
-
-            return false;
-        }
-
-        $this->bench->end();
-
-        Utils::write(
-            sprintf(
-                'Elapsed time: %s, Memory: %s       ',
-                $this->bench->getTime(),
-                $this->bench->getMemoryUsage()
-            )
-        );
-
-        return true;
-    }
-
-    private function prepareDownloadLink(string $url): array
-    {
-        $parts = parse_url($this->getRedirectUrl($url));
-
-        return [
-            'query' => $parts['query'],
-            'url' => $parts['scheme'].'://'.$parts['host'].$parts['path'],
-        ];
     }
 
     /**
